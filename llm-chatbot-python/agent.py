@@ -130,7 +130,16 @@ def create_agent_executor(llm, embeddings):
         return_messages=True
     )
 
-    agent = create_react_agent(llm, tools, agent_prompt)
+    model_name = str(getattr(llm, "model_name", getattr(llm, "model", ""))).lower()
+    # Some newer OpenAI models (for example gpt-5.*) reject the `stop` parameter.
+    supports_stop_param = not model_name.startswith("gpt-5")
+
+    agent = create_react_agent(
+        llm,
+        tools,
+        agent_prompt,
+        stop_sequence=supports_stop_param,
+    )
     return AgentExecutor(
         agent=agent,
         tools=tools,
