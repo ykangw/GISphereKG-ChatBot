@@ -1,7 +1,7 @@
 from langchain_neo4j import GraphCypherQAChain
 from langchain.prompts.prompt import PromptTemplate
 
-from graph import graph
+from graph import read_only_graph
 
 # {schema} is introspected from the live database, so it already carries the exact
 # labels, property names and relationship directions. This template only adds what
@@ -90,7 +90,7 @@ def cypher_qa(llm):
     """Create GraphCypherQAChain with dynamic LLM"""
     return GraphCypherQAChain.from_llm(
         llm,
-        graph=graph,
+        graph=read_only_graph,
         cypher_prompt=PromptTemplate.from_template(CYPHER_GENERATION_TEMPLATE),
         qa_prompt=PromptTemplate.from_template(CYPHER_QA_TEMPLATE),
         # Rows beyond top_k are dropped in Python after the query has run, with no
