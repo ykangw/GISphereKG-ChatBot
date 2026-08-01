@@ -1,9 +1,12 @@
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain import hub
 from langchain.tools import Tool
-from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain.prompts import PromptTemplate
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_neo4j import Neo4jChatMessageHistory
 
+from graph import graph
+from utils import get_session_id
 from tools.vector import kg_qa
 from tools.cypher import cypher_qa
 
@@ -100,6 +103,17 @@ tools:
 '''
 
 
+def get_memory(session_id):
+    """Conversation history for one browser session.
+
+    The executor is rebuilt on every message, so the history has to live outside
+    of it. Storing it in Neo4j keyed by the Streamlit session id keeps it isolated
+    per user and lets it survive an app restart. window is the number of previous
+    exchanges replayed into the prompt.
+    """
+    return Neo4jChatMessageHistory(session_id=session_id, graph=graph, window=15)
+
+
 def create_agent_executor(llm, embeddings):
     """Create agent components with dynamic LLM and embeddings"""
     # Create tools with current LLM/embeddings
@@ -124,12 +138,6 @@ def create_agent_executor(llm, embeddings):
         )
     ]
 
-    memory = ConversationBufferWindowMemory(
-        memory_key='chat_history',
-        k=5,
-        return_messages=True
-    )
-
     model_name = str(getattr(llm, "model_name", getattr(llm, "model", ""))).lower()
     # Some newer OpenAI models (for example gpt-5.*) reject the `stop` parameter.
     supports_stop_param = not model_name.startswith("gpt-5")
@@ -143,12 +151,20 @@ def create_agent_executor(llm, embeddings):
     return AgentExecutor(
         agent=agent,
         tools=tools,
-        memory=memory,
         verbose=True
     )
 
 def generate_response(prompt, llm, embeddings):
     """Updated to use dynamic agent executor"""
     agent_executor = create_agent_executor(llm, embeddings)
-    response = agent_executor.invoke({"input": prompt})
+    chat_agent = RunnableWithMessageHistory(
+        agent_executor,
+        get_memory,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+    )
+    response = chat_agent.invoke(
+        {"input": prompt},
+        {"configurable": {"session_id": get_session_id()}},
+    )
     return response['output']
