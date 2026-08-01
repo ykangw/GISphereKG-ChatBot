@@ -1,14 +1,17 @@
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain import hub
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.tools import Tool
-from langchain.chains.conversation.memory import ConversationBufferWindowMemory
-from langchain.prompts import PromptTemplate
+from langchain.schema import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_neo4j import Neo4jChatMessageHistory
 
+from graph import graph
+from utils import get_session_id
 from tools.vector import kg_qa
 from tools.cypher import cypher_qa
 
 
-agent_prompt = PromptTemplate.from_template("""
+system_prompt = """
 
 # Role Definition:\n
 You are a knowledge graph information retrieval, similarity measure, and recommendation expert for a GIS program.  
@@ -16,24 +19,24 @@ Be as helpful as possible and return as much information as possible.
 Your responses should strictly use information from the provided Neo4j database.\n\n
 
 # Key Guidelines:\n
-When some words (close, similar, recommendation/recommend) are mentioned in the question, use 'Vector Search Index', calculate semantic similarity of each 'ResearchInterest' node with the extracted input, and return at least 10 similar 'ResearchInterest' nodes.  
+When some words (close, similar, recommendation/recommend) are mentioned in the question, use 'research_interest_vector_search', calculate semantic similarity of each 'ResearchInterest' node with the extracted input, and return at least 10 similar 'ResearchInterest' nodes.
 Do not find information outside of this Neo4j database. 
 Do not answer any questions that do not relate to our knowledge graph. 
 Only the information provided in the knowledge graph or you can use research interest property to do recommendation based on the embeddings. 
 When the question contains Professor(s), it is always "People" node instead of Professor node. 
 When it comes to relationship between People and ResearchInterest, the relationship in the Cypher statement generation should be "hasResearchInterestOf". 
-When using "Vector Index Search" to find closely aligned or similar research interests according to the input, return at least top 20 "ResearchInterest" nodes. 
-When using "Graph Cypher QA Chain" involving 'research_interest' attribute, please make sure that the research interest from input is contained in the database,  
-Otherwise, please turn to use "Vector Index Search" tool to find out similar research interests first. then use 'Graph Cypher QA chain' tool. 
+When using "research_interest_vector_search" to find closely aligned or similar research interests according to the input, return at least top 20 "ResearchInterest" nodes.
+When using "graph_cypher_qa" involving 'research_interest' attribute, please make sure that the research interest from input is contained in the database,
+Otherwise, please turn to use "research_interest_vector_search" tool to find out similar research interests first. then use 'graph_cypher_qa' tool.
 
-When asking question referring to research interests, professors, and other additional information (university, city, etc),  
-first please use Vector Search Index tool to find similar research interests, 
-then use Graph Cypher QA Chain tool with the input of these returned research interests and return the information from the question.\n\n
+When asking question referring to research interests, professors, and other additional information (university, city, etc),
+first please use research_interest_vector_search tool to find similar research interests,
+then use graph_cypher_qa tool with the input of these returned research interests and return the information from the question.\n\n
 
 Nodes:\n
 - For "ResearchInterest" node, return only the 'research_interest' attribute. 
-- If the query mentions Professor(s), interpret it as "People" nodes. Return attributes such as 'NAME_CN', 'NAME_EN', 'Research Interests', and 'URL'. 
-- For "City" nodes, return "NAME_CN", "NAME_EN", "WKT", and "CityID". 
+- If the query mentions Professor(s), interpret it as "People" nodes. Return attributes such as 'NAME_CN ', 'NAME_EN', 'Research Interests', and 'URL'.
+- For "City" nodes, return "NAME_CN", "NAME_EN", "lat" and "lon".
 - For "Continent" nodes, return "NAME_CN" and "NAME_EN". 
 - For "Country" nodes, return "NAME_CN" and "NAME_EN". 
 - For "Department" nodes, return "NAME_CN" and "NAME_EN". 
@@ -42,54 +45,32 @@ Nodes:\n
 Relationships:\n
 - hasResearchInterestOf:   
   Connects "People" nodes to "ResearchInterest" nodes.\n
-- isIn: 
+- isIn:
   Represents: \n
     1. (City)-[isIn]->(Country)\n
     2. (Country)-[isIn]->(Continent)\n
     3. (Department)-[isIn]->(University)\n
-- WorksAt: 
-  Connects "People" nodes to "University" nodes.\n
-- isSimilarTo: 
-  Undirected relationship between "People" nodes with a similarity score. For example:\n  
-  ```
-  MATCH (p1:People)-[r:isSimilarTo]-(p2:People)
-  WHERE p1.NAME_EN = 'LIU, Xingjian'
-  RETURN p2.NAME_EN, r.score
-  ORDER BY r.score DESC
-  ```\n\n
+    4. (University)-[isIn]->(City)\n
+- worksAt:
+  Connects "People" nodes to "University" nodes.\n\n
 
-# TOOLS\n
+There is no relationship between People nodes, so answer questions about similar or
+recommended professors by comparing their research interests with
+research_interest_vector_search.\n\n
+"""
 
-You have access to the following tools:
-
-{tools}\n
-
-To use a tool, please use the following format:\n
-
-```
-Thought: Do I need to use a tool? Yes
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-```\n
-
-When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:\n
-
-```
-Thought: Do I need to use a tool? No
-Final Answer: [your response here]
-```\n\n
-
-Begin!\n\n
-
-Previous conversation history:
-{chat_history}\n
-
-New input: {input}\n
-{agent_scratchpad}
-""")
-
-print(agent_prompt)
+# The tools are advertised to the model through the API's own tool schema, so the
+# prompt no longer lists them or describes an output format. chat_history and
+# agent_scratchpad are message lists rather than strings: the scratchpad is where
+# the executor replays tool calls and their results back to the model.
+agent_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="chat_history", optional=True),
+        ("human", "{input}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
+    ]
+)
 
 '''
 llm: this is set to the instance of ChatOpenAI
@@ -100,55 +81,87 @@ tools:
 '''
 
 
+def get_memory(session_id):
+    """Conversation history for one browser session.
+
+    The executor is rebuilt on every message, so the history has to live outside
+    of it. Storing it in Neo4j keyed by the Streamlit session id keeps it isolated
+    per user and lets it survive an app restart. window is the number of previous
+    exchanges replayed into the prompt.
+    """
+    return Neo4jChatMessageHistory(session_id=session_id, graph=graph, window=15)
+
+
 def create_agent_executor(llm, embeddings):
     """Create agent components with dynamic LLM and embeddings"""
-    # Create tools with current LLM/embeddings
+    # StrOutputParser keeps the tool's return value a plain string. Calling
+    # llm.invoke directly would hand the agent an AIMessage object instead.
+    general_chat = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are a GIS program and research interest expert."),
+            ("human", "{input}"),
+        ]
+    ) | llm | StrOutputParser()
+
+    # Tool names become function names in the API's tool schema, which only allows
+    # [a-zA-Z0-9_.-] -- no spaces. The model routes on the name and description
+    # alone, so both need to say what the tool is for and what input it expects.
     tools = [
         Tool.from_function(
-            name="General Chat",
-            description="For general chat not covered by other tools",
-            func=llm.invoke,
+            name="general_chat",
+            description=(
+                "For general GIS chat not covered by the other tools. "
+                "Input is the user's question as plain text."
+            ),
+            func=general_chat.invoke,
             return_direct=True
         ),
         Tool.from_function(
-            name="Vector Search Index",
-            description="Provides information about research interest using Vector Search",
+            name="research_interest_vector_search",
+            description=(
+                "Find ResearchInterest nodes that are semantically similar to a "
+                "topic, using vector search over research interest embeddings. "
+                "Use this first for questions about similarity, closeness or "
+                "recommendations, or when a research interest may not match the "
+                "database wording exactly. Input is a research topic as plain text."
+            ),
             func=kg_qa(llm, embeddings),  # Modified kg_qa call
             return_direct=False
         ),
         Tool.from_function(
-            name="Graph Cypher QA Chain",
-            description="Provides information about GIS programs...",
+            name="graph_cypher_qa",
+            description=(
+                "Answer questions about GIS programs, professors, universities, "
+                "departments, cities and countries by generating and running a "
+                "Cypher query against the knowledge graph. Use this for factual "
+                "lookups and for anything needing exact values or counts. Input is "
+                "the question as plain text."
+            ),
             func=cypher_qa(llm),  # Modified cypher_qa call
             return_direct=False
         )
     ]
 
-    memory = ConversationBufferWindowMemory(
-        memory_key='chat_history',
-        k=5,
-        return_messages=True
-    )
-
-    model_name = str(getattr(llm, "model_name", getattr(llm, "model", ""))).lower()
-    # Some newer OpenAI models (for example gpt-5.*) reject the `stop` parameter.
-    supports_stop_param = not model_name.startswith("gpt-5")
-
-    agent = create_react_agent(
-        llm,
-        tools,
-        agent_prompt,
-        stop_sequence=supports_stop_param,
-    )
+    # Native tool calling: the model returns structured tool_calls instead of text
+    # to be parsed, so no stop sequence and no output-format parsing is involved.
+    agent = create_tool_calling_agent(llm, tools, agent_prompt)
     return AgentExecutor(
         agent=agent,
         tools=tools,
-        memory=memory,
         verbose=True
     )
 
 def generate_response(prompt, llm, embeddings):
     """Updated to use dynamic agent executor"""
     agent_executor = create_agent_executor(llm, embeddings)
-    response = agent_executor.invoke({"input": prompt})
+    chat_agent = RunnableWithMessageHistory(
+        agent_executor,
+        get_memory,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+    )
+    response = chat_agent.invoke(
+        {"input": prompt},
+        {"configurable": {"session_id": get_session_id()}},
+    )
     return response['output']

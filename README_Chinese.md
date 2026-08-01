@@ -55,10 +55,10 @@
    - 上传位于 `data/` 文件夹中的备份文件。
 
 2. **配置环境变量：**
-    设置以下环境变量：
+    在 `llm-chatbot-python/.streamlit/` 目录下创建 `secrets.toml` 文件，并配置以下环境变量：
 
-   - **数据库相关：** `NEO4J_URI`、`NEO4J_USERNAME` 和 `NEO4J_PASSWORD`
-   - **OpenAI LLM：** `OPENAI_API_KEY` 和 `OPENAI_MODEL`
+   - **数据库相关：** `NEO4J_URI`、`NEO4J_USERNAME`、`NEO4J_PASSWORD` 和 `NEO4J_DATABASE`（可选，默认为 `neo4j`）
+   - **OpenAI LLM：** `OPENAI_API_KEY`、`OPENAI_MODEL` 和 `OPENAI_BASE_URL`（可选，用于兼容 OpenAI 接口的第三方服务）
 
 3. **安装依赖库：**
     在项目目录下运行以下命令：

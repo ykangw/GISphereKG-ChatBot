@@ -1,8 +1,8 @@
 import os
 import sys
 import pandas as pd
+import streamlit as st
 from neo4j import GraphDatabase
-from constants import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
 
 threshold = 0.9
 prof_sim_df = pd.read_csv(os.path.dirname(os.getcwd()) + "/data/prof_sim.csv")
@@ -11,8 +11,9 @@ score_above = [s for s in scores if s > threshold]
 
 # print(len(score_above), len(scores))
 
-url = NEO4J_URI
-auth = (NEO4J_USERNAME, NEO4J_PASSWORD)
+url = st.secrets['NEO4J_URI']
+auth = (st.secrets['NEO4J_USERNAME'], st.secrets['NEO4J_PASSWORD'])
+database = st.secrets.get('NEO4J_DATABASE', 'neo4j')
 
 with GraphDatabase.driver(url, auth = auth) as driver:
     driver.verify_connectivity()
@@ -26,7 +27,7 @@ with GraphDatabase.driver(url, auth = auth) as driver:
             if score > threshold:
                 r = driver.execute_query(
                     "match (p1:People{PersonID:'" + str(int(prof1)) + "'}), (p2:People{PersonID:'" + str(int(prof2)) +"'}) create (p1)-[r:isSimilarTo{score:" + str(score) + "}]->(p2) return r",
-                    database = "neo4j"
+                    database_ = database
                 )
                 print(r)
 #

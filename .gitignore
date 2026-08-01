@@ -12,6 +12,7 @@ __pycache__/
 .venv/
 
 # Secrets
-llm-chatbot-python/.streamlit/
+**/.streamlit/secrets.toml
 
-
+# raw data
+llm-chatbot-python/data_*/*

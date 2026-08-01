@@ -1,8 +1,9 @@
+import os
 import sys
-from langchain_community.vectorstores import Neo4jVector
+from langchain_neo4j import Neo4jVector
 import streamlit as st
 
-sys.path.append("../")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm import get_embeddings
 
 if __name__ == "__main__":
@@ -23,6 +24,7 @@ if __name__ == "__main__":
         url = st.secrets['NEO4J_URI'],
         username = st.secrets['NEO4J_USERNAME'],
         password = st.secrets['NEO4J_PASSWORD'],
+        database = st.secrets.get('NEO4J_DATABASE', 'neo4j'),
         node_label = 'ResearchInterest',
         embedding_node_property = "embedding",
         text_node_properties = ["research_interest"],
@@ -38,7 +40,7 @@ if __name__ == "__main__":
         url = st.secrets['NEO4J_URI'],
         username = st.secrets['NEO4J_USERNAME'],
         password = st.secrets['NEO4J_PASSWORD'],
-        database="neo4j",
+        database = st.secrets.get('NEO4J_DATABASE', 'neo4j'),
         index_name = 'ri_embedding',
         embedding_node_property = "embedding",
         text_node_property = "research_interest",

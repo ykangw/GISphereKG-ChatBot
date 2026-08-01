@@ -69,8 +69,8 @@ To run the application locally, follow these steps:
 2. **Environment Variables:**
     Create a `secrets.toml` file in `llm-chatbot-python/.streamlit/` folder and configure the following environment variables:
 
-   - **Neo4j Database:** `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`
-   - **OpenAI LLM:** `OPENAI_API_KEY`, `OPENAI_MODEL`
+   - **Neo4j Database:** `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` (optional, defaults to `neo4j`)
+   - **OpenAI LLM:** `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` (optional, for OpenAI-compatible providers)
 
 3. **Install Dependencies:**
     In the project directory, run:
