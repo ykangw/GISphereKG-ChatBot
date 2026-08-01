@@ -1,14 +1,21 @@
-import streamlit as st
-from langchain_community.vectorstores import Neo4jVector
-from langchain.chains import RetrievalQA, RetrievalQAWithSourcesChain
+from langchain_neo4j import Neo4jVector
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+
+from graph import graph
+
+instructions = (
+    "Use the given context to answer the question."
+    "If you don't know the answer, say you don't know."
+    "Context: {context}"
+)
 
 def kg_qa(llm, embeddings):
-    """Create RetrievalQA with dynamic LLM and embeddings"""
+    """Create a research interest retrieval chain with dynamic LLM and embeddings"""
     neo4jvector = Neo4jVector.from_existing_index(
         embeddings,
-        url=st.secrets['NEO4J_URI'],
-        username=st.secrets['NEO4J_USERNAME'],
-        password=st.secrets['NEO4J_PASSWORD'],
+        graph=graph,
         index_name='ri_embedding',
         node_label='ResearchInterest',
         text_node_property='research_interest',
@@ -23,9 +30,22 @@ def kg_qa(llm, embeddings):
             } AS metadata
             """
     )
-    return RetrievalQA.from_llm(
-        llm=llm,
-        retriever=neo4jvector.as_retriever(),
-        verbose=True,
-        return_source_documents=True
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", instructions),
+            ("human", "{input}"),
+        ]
     )
+    question_answer_chain = create_stuff_documents_chain(llm, prompt)
+    retrieval_chain = create_retrieval_chain(
+        neo4jvector.as_retriever(),
+        question_answer_chain
+    )
+
+    # The agent's Tool expects a callable, and LCEL runnables are invoked rather
+    # than called, so wrap the chain in a function.
+    def run(input):
+        return retrieval_chain.invoke({"input": input})
+
+    return run

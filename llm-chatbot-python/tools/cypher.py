@@ -1,6 +1,6 @@
 import streamlit as st
 import sys
-from langchain.chains import GraphCypherQAChain
+from langchain_neo4j import GraphCypherQAChain
 
 sys.path.append("../")
 from graph import graph
