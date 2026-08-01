@@ -39,7 +39,9 @@ def kg_qa(llm, embeddings):
     )
     question_answer_chain = create_stuff_documents_chain(llm, prompt)
     retrieval_chain = create_retrieval_chain(
-        neo4jvector.as_retriever(),
+        # as_retriever defaults to k=4, far fewer than the 20 research interests the
+        # agent prompt asks for.
+        neo4jvector.as_retriever(search_kwargs={"k": 25}),
         question_answer_chain
     )
 
