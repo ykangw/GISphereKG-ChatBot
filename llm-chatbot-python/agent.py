@@ -1,11 +1,11 @@
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain.tools import Tool
-from langchain.schema import StrOutputParser
+from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
+from langchain_classic.tools import Tool
+from langchain_classic.schema import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_neo4j import Neo4jChatMessageHistory
 
-from graph import graph
+from graph import credentials
 from utils import get_session_id
 from tools.vector import kg_qa
 from tools.cypher import cypher_qa
@@ -88,8 +88,13 @@ def get_memory(session_id):
     of it. Storing it in Neo4j keyed by the Streamlit session id keeps it isolated
     per user and lets it survive an app restart. window is the number of previous
     exchanges replayed into the prompt.
+
+    Built from credentials rather than the shared graph on purpose: this object is
+    discarded after every message, and its __del__ closes whatever driver it holds.
+    Handed the shared graph, the first discarded history would close the connection
+    the rest of the app is using.
     """
-    return Neo4jChatMessageHistory(session_id=session_id, graph=graph, window=15)
+    return Neo4jChatMessageHistory(session_id=session_id, window=15, **credentials)
 
 
 def create_agent_executor(llm, embeddings):

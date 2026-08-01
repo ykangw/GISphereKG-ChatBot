@@ -1,5 +1,5 @@
 from langchain_neo4j import GraphCypherQAChain
-from langchain.prompts.prompt import PromptTemplate
+from langchain_classic.prompts.prompt import PromptTemplate
 
 from graph import read_only_graph
 
