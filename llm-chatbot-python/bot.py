@@ -1,9 +1,12 @@
-import sys
 import streamlit as st
+from pathlib import Path
 from utils import write_message
 from llm import get_llm, get_embeddings
 from agent import generate_response
 
+# Resolved from this file rather than the working directory: Streamlit Cloud starts
+# the app from the repository root, where a relative "../GISphere.png" would miss.
+PAGE_ICON = str(Path(__file__).resolve().parent.parent / "GISphere.png")
 
 # Inside the handle_submit function
 def handle_submit(message):
@@ -27,7 +30,7 @@ def handle_submit(message):
         write_message('assistant', response)
 
 # Page Config
-st.set_page_config("GISphere Chatbot", page_icon="../GISphere.png",
+st.set_page_config("GISphere Chatbot", page_icon=PAGE_ICON,
                    layout="wide", initial_sidebar_state="expanded")
 
 # Sidebar for API Key Input
