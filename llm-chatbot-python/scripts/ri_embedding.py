@@ -1,8 +1,9 @@
+import os
 import sys
 from langchain_community.vectorstores import Neo4jVector
 import streamlit as st
 
-sys.path.append("../")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm import get_embeddings
 
 if __name__ == "__main__":
